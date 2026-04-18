@@ -257,6 +257,7 @@ def format_pr_comment(triaged: list[dict]) -> str:
 
 def post_pr_comment(comment_body: str, repo: str, pr_number: int) -> None:
     """Post a comment to a GitHub pull request."""
+    import urllib.error
     import urllib.request
 
     github_token = os.environ.get("GITHUB_TOKEN")
@@ -277,8 +278,13 @@ def post_pr_comment(comment_body: str, repo: str, pr_number: int) -> None:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req) as resp:
-        print(f"[triage] Posted PR comment (status {resp.status})", file=sys.stderr)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            print(f"[triage] Posted PR comment (status {resp.status})", file=sys.stderr)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        print(f"[triage] Failed to post PR comment (HTTP {e.code}): {body}", file=sys.stderr)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +316,10 @@ def main():
     if repo and pr_number:
         post_pr_comment(comment, repo, pr_number)
     else:
+        print(
+            f"[triage] No PR context detected (repo='{repo}', pr_number={pr_number}) — printing comment to stdout",
+            file=sys.stderr,
+        )
         print(comment)
 
 
