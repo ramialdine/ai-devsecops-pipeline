@@ -1,0 +1,8 @@
+# Intentionally pinned to vulnerable versions for scanner testing
+flask==2.2.0
+jinja2==3.1.2
+werkzeug==2.2.2
+# VULN: Known CVE - pinned old version of requests with vulnerability
+requests==2.25.0
+# VULN: Known CVE - pinned old version of urllib3
+urllib3==1.26.5

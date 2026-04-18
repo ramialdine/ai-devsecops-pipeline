@@ -1,0 +1,161 @@
+name: Security Scan Pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  SCAN_ARTIFACTS: scan-artifacts
+
+jobs:
+  # ----- SAST: Semgrep -----
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/owasp-top-ten
+        env:
+          SEMGREP_RULES: p/python p/owasp-top-ten
+        continue-on-error: true
+
+      - name: Run Semgrep JSON output
+        run: |
+          pip install semgrep
+          mkdir -p ${{ env.SCAN_ARTIFACTS }}
+          semgrep scan --config p/python --config p/owasp-top-ten \
+            --json --output ${{ env.SCAN_ARTIFACTS }}/semgrep_results.json \
+            app/ || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: ${{ env.SCAN_ARTIFACTS }}/semgrep_results.json
+
+  # ----- Secrets: TruffleHog -----
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog
+        run: |
+          pip install trufflehog
+          mkdir -p ${{ env.SCAN_ARTIFACTS }}
+          trufflehog filesystem --json --directory . \
+            > ${{ env.SCAN_ARTIFACTS }}/trufflehog_results.json 2>/dev/null || true
+          # Ensure valid JSON (trufflehog outputs one object per line)
+          python3 -c "
+          import json, sys
+          lines = open('${{ env.SCAN_ARTIFACTS }}/trufflehog_results.json').read().strip().splitlines()
+          results = [json.loads(l) for l in lines if l.strip()]
+          json.dump(results, open('${{ env.SCAN_ARTIFACTS }}/trufflehog_results.json', 'w'), indent=2)
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trufflehog-results
+          path: ${{ env.SCAN_ARTIFACTS }}/trufflehog_results.json
+
+  # ----- SCA: pip-audit -----
+  sca:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run pip-audit
+        run: |
+          pip install pip-audit
+          mkdir -p ${{ env.SCAN_ARTIFACTS }}
+          pip-audit -r app/requirements.txt --format json \
+            --output ${{ env.SCAN_ARTIFACTS }}/pip-audit_results.json || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-results
+          path: ${{ env.SCAN_ARTIFACTS }}/pip-audit_results.json
+
+  # ----- DAST: ZAP (runs after Docker build) -----
+  dast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start target app
+        run: |
+          docker build -t vuln-app ./app
+          docker run -d --name vuln-app -p 5000:5000 vuln-app
+          # Wait for app to be ready
+          for i in $(seq 1 30); do
+            curl -s http://localhost:5000/health && break
+            sleep 1
+          done
+
+      - name: Run ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: "http://localhost:5000"
+          cmd_options: "-J zap_results.json"
+          allow_issue_writing: false
+        continue-on-error: true
+
+      - name: Collect ZAP results
+        run: |
+          mkdir -p ${{ env.SCAN_ARTIFACTS }}
+          cp zap_results.json ${{ env.SCAN_ARTIFACTS }}/zap_results.json 2>/dev/null || \
+            echo '{"site":[]}' > ${{ env.SCAN_ARTIFACTS }}/zap_results.json
+
+      - name: Stop target app
+        if: always()
+        run: docker stop vuln-app || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap-results
+          path: ${{ env.SCAN_ARTIFACTS }}/zap_results.json
+
+  # ----- AI Triage -----
+  triage:
+    needs: [semgrep, secrets, sca, dast]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install triage dependencies
+        run: pip install -r triage/requirements.txt
+
+      - name: Download all scan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ env.SCAN_ARTIFACTS }}
+          merge-multiple: true
+
+      - name: Run AI triage
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SCAN_ARTIFACTS: ${{ env.SCAN_ARTIFACTS }}
+        run: python triage/triage.py
