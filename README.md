@@ -2,6 +2,20 @@
 
 A GitHub Actions-powered DevSecOps pipeline that automatically runs a full AppSec scan suite on every push and pull request, then uses the Gemini API to triage findings and post an AI-generated summary as a PR comment.
 
+## Quick Start (for first-time users)
+
+1. Fork or copy this repository
+2. In your repo, add `GEMINI_API_KEY`:
+   - **Settings → Secrets and variables → Actions → New repository secret**
+3. Push a branch and open a PR
+4. Go to **Actions** and open the `Security Scan Pipeline` run
+5. Review:
+   - workflow logs/artifacts
+   - PR security summary comment (on PR runs)
+
+If you want to run everything manually, use:
+- **Actions → Security Scan Pipeline → Run workflow → force_full_scan=true**
+
 ## Architecture
 
 ```
