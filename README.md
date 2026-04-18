@@ -42,15 +42,28 @@ PR opened/updated
 
 ## How It Works
 
-1. A pull request triggers the `security-scan.yml` workflow
-2. Four scanners run in parallel:
+1. A push, pull request, or manual run triggers the `security-scan.yml` workflow
+2. The workflow first classifies changed files and creates a scan plan:
+   - **Docs/markdown-only changes** → run **TruffleHog (secrets)** only
+   - **App/runtime changes** → run Semgrep, TruffleHog, pip-audit, and/or ZAP as relevant
+   - **Workflow/triage changes** or manual **force full scan** → run all scanners
+3. Enabled scanners run in parallel:
    - **Semgrep** (SAST) — scans source code for vulnerabilities using `p/python` and `p/owasp-top-ten` rulesets
    - **TruffleHog** (Secrets) — scans the filesystem for hardcoded secrets and API keys
    - **pip-audit** (SCA) — checks `requirements.txt` for dependencies with known CVEs
    - **ZAP** (DAST) — runs a baseline scan against the Dockerized app for runtime vulnerabilities
-3. Each scanner outputs structured JSON artifacts
-4. The **triage agent** (`triage/triage.py`) collects all artifacts, sends them to Gemini (`gemini-2.5-pro`), which deduplicates cross-tool findings, assigns severity, and writes plain-English remediation
-5. The triaged results are posted as a formatted Markdown table on the PR
+4. Each scanner outputs structured JSON artifacts
+5. The **triage agent** (`triage/triage.py`) collects all artifacts, sends them to Gemini (`gemini-2.5-pro`), which deduplicates cross-tool findings, assigns severity, and writes plain-English remediation
+6. On PR runs, triaged results are posted as a formatted Markdown table comment
+
+### Manual Force Full Scan
+
+You can always run a full scan from the Actions UI:
+
+1. Go to **Actions** → **Security Scan Pipeline**
+2. Click **Run workflow**
+3. Set **force_full_scan = true**
+4. Run
 
 ## Target Application
 
@@ -82,6 +95,25 @@ python -m pytest tests/ -v --cov=triage --cov-report=term-missing
    - `GEMINI_API_KEY` — your Gemini API key
    - `GITHUB_TOKEN` is automatically provided by GitHub Actions
 3. Open a pull request — the pipeline triggers automatically
+
+### Public Repo Approval Behavior
+
+- This workflow only runs PR scans for authors with GitHub association:
+   - `OWNER`, `MEMBER`, or `COLLABORATOR`
+- External contributors can still open PRs on a public repo, but scans are skipped until you add/approve them as collaborators.
+- For stricter control, also enable:
+   - **Settings → Actions → General → Fork pull request workflows from outside collaborators** (require approval)
+   - **Branch protection** on `main` (require PR reviews and required checks)
+
+### Use This Tool In Your Own Repo
+
+If someone else wants to use this pipeline:
+
+1. Fork or copy this repository
+2. In their repo, add `GEMINI_API_KEY` at:
+    - **Settings → Secrets and variables → Actions → New repository secret**
+3. Push changes and open a PR
+4. (Optional) Use **Actions → Security Scan Pipeline → Run workflow** with `force_full_scan=true` for a full manual run
 
 ## Example PR Comment Output
 

@@ -5,7 +5,15 @@ on:
     types: [opened, synchronize]
   push:
     branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
   workflow_dispatch:
+    inputs:
+      force_full_scan:
+        description: "Run all scanners regardless of changed files"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,8 +24,108 @@ env:
   SCAN_ARTIFACTS: scan-artifacts
 
 jobs:
+  # ----- PR approval gate -----
+  approval:
+    runs-on: ubuntu-latest
+    outputs:
+      approved: ${{ steps.check.outputs.approved }}
+    steps:
+      - name: Check PR author approval status
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "approved=true" >> "$GITHUB_OUTPUT"
+            echo "[approval] Non-PR event; allowed"
+            exit 0
+          fi
+
+          association="${{ github.event.pull_request.author_association }}"
+          case "$association" in
+            OWNER|MEMBER|COLLABORATOR)
+              echo "approved=true" >> "$GITHUB_OUTPUT"
+              echo "[approval] PR author association '$association' is approved"
+              ;;
+            *)
+              echo "approved=false" >> "$GITHUB_OUTPUT"
+              echo "[approval] PR author association '$association' is not approved; skipping scans"
+              ;;
+          esac
+
+  # ----- Change classification -----
+  changes:
+    needs: approval
+    if: ${{ needs.approval.outputs.approved == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      run_full_scan: ${{ steps.flags.outputs.run_full_scan }}
+      run_semgrep: ${{ steps.flags.outputs.run_semgrep }}
+      run_secrets: ${{ steps.flags.outputs.run_secrets }}
+      run_sca: ${{ steps.flags.outputs.run_sca }}
+      run_dast: ${{ steps.flags.outputs.run_dast }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files by area
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            force_full:
+              - '.github/workflows/**'
+              - 'triage/**'
+            semgrep_relevant:
+              - 'app/**'
+              - '.semgrep*.yml'
+              - 'semgrep/**'
+            sca_relevant:
+              - 'app/requirements.txt'
+              - '**/requirements*.txt'
+              - 'pyproject.toml'
+              - 'poetry.lock'
+              - 'Pipfile'
+              - 'Pipfile.lock'
+              - 'setup.py'
+            dast_relevant:
+              - 'app/**'
+              - 'app/Dockerfile'
+              - 'docker-compose*.yml'
+              - '.dockerignore'
+
+      - name: Compute scan plan
+        id: flags
+        run: |
+          FORCE_FROM_SCHEDULE="${{ github.event_name == 'schedule' }}"
+          FORCE_FROM_INPUT="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_full_scan == 'true' }}"
+          FORCE_FROM_PATHS="${{ steps.filter.outputs.force_full == 'true' }}"
+
+          if [[ "$FORCE_FROM_SCHEDULE" == "true" || "$FORCE_FROM_INPUT" == "true" || "$FORCE_FROM_PATHS" == "true" ]]; then
+            RUN_FULL_SCAN=true
+            RUN_SEMGREP=true
+            RUN_SECRETS=true
+            RUN_SCA=true
+            RUN_DAST=true
+          else
+            RUN_FULL_SCAN=false
+            RUN_SEMGREP="${{ steps.filter.outputs.semgrep_relevant == 'true' }}"
+            RUN_SECRETS=true
+            RUN_SCA="${{ steps.filter.outputs.sca_relevant == 'true' }}"
+            RUN_DAST="${{ steps.filter.outputs.dast_relevant == 'true' }}"
+          fi
+
+          echo "run_full_scan=$RUN_FULL_SCAN" >> "$GITHUB_OUTPUT"
+          echo "run_semgrep=$RUN_SEMGREP" >> "$GITHUB_OUTPUT"
+          echo "run_secrets=$RUN_SECRETS" >> "$GITHUB_OUTPUT"
+          echo "run_sca=$RUN_SCA" >> "$GITHUB_OUTPUT"
+          echo "run_dast=$RUN_DAST" >> "$GITHUB_OUTPUT"
+
+          echo "[plan] full=$RUN_FULL_SCAN semgrep=$RUN_SEMGREP secrets=$RUN_SECRETS sca=$RUN_SCA dast=$RUN_DAST"
+
   # ----- SAST: Semgrep -----
   semgrep:
+    needs: changes
+    if: ${{ needs.changes.outputs.run_semgrep == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +155,8 @@ jobs:
 
   # ----- Secrets: TruffleHog -----
   secrets:
+    needs: changes
+    if: ${{ needs.changes.outputs.run_secrets == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +184,8 @@ jobs:
 
   # ----- SCA: pip-audit -----
   sca:
+    needs: changes
+    if: ${{ needs.changes.outputs.run_sca == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +209,8 @@ jobs:
 
   # ----- DAST: ZAP (runs after Docker build) -----
   dast:
+    needs: changes
+    if: ${{ needs.changes.outputs.run_dast == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -136,7 +250,8 @@ jobs:
 
   # ----- AI Triage -----
   triage:
-    needs: [semgrep, secrets, sca, dast]
+    needs: [changes, semgrep, secrets, sca, dast]
+    if: ${{ always() && (needs.semgrep.result == 'success' || needs.secrets.result == 'success' || needs.sca.result == 'success' || needs.dast.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -156,6 +271,7 @@ jobs:
           merge-multiple: true
 
       - name: Run AI triage
+        if: ${{ secrets.GEMINI_API_KEY != '' }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -163,3 +279,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
           SCAN_ARTIFACTS: ${{ env.SCAN_ARTIFACTS }}
         run: python triage/triage.py
+
+      - name: Skip AI triage (missing GEMINI_API_KEY)
+        if: ${{ secrets.GEMINI_API_KEY == '' }}
+        run: echo "GEMINI_API_KEY not available for this run; skipping AI triage and PR comment posting."
