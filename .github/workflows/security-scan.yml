@@ -258,7 +258,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
-      SCAN_ARTIFACTS: ${{ env.SCAN_ARTIFACTS }}
+      SCAN_ARTIFACTS: scan-artifacts
     steps:
       - uses: actions/checkout@v4
 
