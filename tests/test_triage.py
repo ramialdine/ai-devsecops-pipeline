@@ -2,7 +2,7 @@
 Tests for the triage agent.
 
 Covers JSON parsing for each scanner, severity mapping, markdown formatting,
-and Claude API call (mocked).
+and Gemini API call (mocked).
 """
 
 import json
@@ -319,38 +319,34 @@ class TestFormatPrComment:
 
 
 # ---------------------------------------------------------------------------
-# Claude API triage test (mocked)
+# Gemini API triage test (mocked)
 # ---------------------------------------------------------------------------
 
 class TestTriageFindings:
-    def test_calls_claude_api(self):
+    def test_calls_gemini_api(self):
         mock_response = MagicMock()
-        mock_response.content = [
-            MagicMock(
-                text=json.dumps([
-                    {
-                        "title": "SQL Injection",
-                        "severity": "CRITICAL",
-                        "scanner": "semgrep",
-                        "file": "app/app.py",
-                        "line": 42,
-                        "remediation": "Use parameterized queries.",
-                    }
-                ])
-            )
-        ]
+        mock_response.text = json.dumps([
+            {
+                "title": "SQL Injection",
+                "severity": "CRITICAL",
+                "scanner": "semgrep",
+                "file": "app/app.py",
+                "line": 42,
+                "remediation": "Use parameterized queries.",
+            }
+        ])
 
-        with patch("triage.anthropic.Anthropic") as mock_cls:
+        with patch("triage.genai.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
-            mock_client.messages.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
 
             findings = [{"scanner": "semgrep", "rule_id": "test", "message": "test", "file": "x", "line": 1, "severity": "HIGH", "snippet": ""}]
             result = triage_findings(findings)
 
-            mock_client.messages.create.assert_called_once()
-            call_kwargs = mock_client.messages.create.call_args[1]
-            assert call_kwargs["model"] == "claude-sonnet-4-6"
+            mock_client.models.generate_content.assert_called_once()
+            call_kwargs = mock_client.models.generate_content.call_args[1]
+            assert call_kwargs["model"] == "gemini-2.5-pro"
             assert len(result) == 1
             assert result[0]["title"] == "SQL Injection"
 
@@ -360,13 +356,12 @@ class TestTriageFindings:
 
     def test_handles_markdown_fencing(self):
         mock_response = MagicMock()
-        fenced = '```json\n[{"title": "XSS", "severity": "HIGH", "scanner": "zap", "file": "", "line": 0, "remediation": "Escape output."}]\n```'
-        mock_response.content = [MagicMock(text=fenced)]
+        mock_response.text = '```json\n[{"title": "XSS", "severity": "HIGH", "scanner": "zap", "file": "", "line": 0, "remediation": "Escape output."}]\n```'
 
-        with patch("triage.anthropic.Anthropic") as mock_cls:
+        with patch("triage.genai.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
-            mock_client.messages.create.return_value = mock_response
+            mock_client.models.generate_content.return_value = mock_response
 
             findings = [{"scanner": "zap", "rule_id": "t", "message": "t", "file": "x", "line": 1, "severity": "HIGH", "snippet": ""}]
             result = triage_findings(findings)
@@ -426,7 +421,7 @@ class TestMain:
             "remediation": "Use parameterized queries.",
         }])
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text=triaged_response)]
+        mock_response.text = triaged_response
 
         env = {
             "SCAN_ARTIFACTS": str(tmp_path),
@@ -434,10 +429,10 @@ class TestMain:
             "PR_NUMBER": "0",
         }
         with patch.dict(os.environ, env):
-            with patch("triage.anthropic.Anthropic") as mock_cls:
+            with patch("triage.genai.Client") as mock_cls:
                 mock_client = MagicMock()
                 mock_cls.return_value = mock_client
-                mock_client.messages.create.return_value = mock_response
+                mock_client.models.generate_content.return_value = mock_response
                 main()
 
         captured = capsys.readouterr()

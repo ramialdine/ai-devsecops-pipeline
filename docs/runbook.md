@@ -20,7 +20,7 @@ Each row includes:
 - **Finding** — short description of the issue
 - **Scanner** — which tool(s) flagged it (cross-tool findings are deduplicated)
 - **File** — source file and line number where applicable
-- **Remediation** — one-sentence fix recommendation from Claude
+- **Remediation** — one-sentence fix recommendation from Gemini
 
 ## Escalation Path
 
@@ -50,8 +50,8 @@ After suppression, re-run the pipeline to confirm the finding no longer appears.
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
-| Triage job fails with `ANTHROPIC_API_KEY` error | Secret not configured | Add `ANTHROPIC_API_KEY` to repo Settings > Secrets |
+| Triage job fails with `GEMINI_API_KEY` error | Secret not configured | Add `GEMINI_API_KEY` to repo Settings > Secrets |
 | ZAP scan produces empty results | App container didn't start in time | Check Docker build logs; increase health check timeout |
 | Scanner job passes but no PR comment | `PR_NUMBER` env var not set correctly | Verify the workflow uses `github.event.pull_request.number` |
-| Claude returns malformed JSON | Unexpected model output | The triage agent strips markdown fencing; if still failing, check the prompt |
+| Gemini returns malformed JSON | Unexpected model output | The triage agent strips markdown fencing; if still failing, check the prompt |
 | Pipeline runs but misses known vulns | Scanner rules may not cover the pattern | Add targeted Semgrep rules or update dependency databases |

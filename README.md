@@ -1,6 +1,6 @@
 # ai-devsecops-pipeline
 
-A GitHub Actions-powered DevSecOps pipeline that automatically runs a full AppSec scan suite on every pull request, then uses the Claude API to triage findings and post an AI-generated summary as a PR comment.
+A GitHub Actions-powered DevSecOps pipeline that automatically runs a full AppSec scan suite on every pull request, then uses the Gemini API to triage findings and post an AI-generated summary as a PR comment.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ PR opened/updated
 │                     │                        │
 │                     ▼                        │
 │  ┌──────────────────────────────────────┐    │
-│  │          triage.py (Claude API)      │    │
+│  │          triage.py (Gemini API)      │    │
 │  │  - Parse scanner JSON               │    │
 │  │  - Deduplicate cross-tool findings   │    │
 │  │  - Classify severity                 │    │
@@ -49,7 +49,7 @@ PR opened/updated
    - **pip-audit** (SCA) — checks `requirements.txt` for dependencies with known CVEs
    - **ZAP** (DAST) — runs a baseline scan against the Dockerized app for runtime vulnerabilities
 3. Each scanner outputs structured JSON artifacts
-4. The **triage agent** (`triage/triage.py`) collects all artifacts, sends them to Claude (claude-sonnet-4-6), which deduplicates cross-tool findings, assigns severity, and writes plain-English remediation
+4. The **triage agent** (`triage/triage.py`) collects all artifacts, sends them to Gemini (`gemini-2.5-pro`), which deduplicates cross-tool findings, assigns severity, and writes plain-English remediation
 5. The triaged results are posted as a formatted Markdown table on the PR
 
 ## Target Application
@@ -71,7 +71,7 @@ The `app/` directory contains an intentionally vulnerable Flask application with
 ### Running Tests Locally
 
 ```bash
-pip install pytest pytest-cov anthropic
+pip install pytest pytest-cov google-genai
 python -m pytest tests/ -v --cov=triage --cov-report=term-missing
 ```
 
@@ -79,7 +79,7 @@ python -m pytest tests/ -v --cov=triage --cov-report=term-missing
 
 1. Push this repo to GitHub
 2. Add repository secrets:
-   - `ANTHROPIC_API_KEY` — your Claude API key
+   - `GEMINI_API_KEY` — your Gemini API key
    - `GITHUB_TOKEN` is automatically provided by GitHub Actions
 3. Open a pull request — the pipeline triggers automatically
 
@@ -106,8 +106,8 @@ ai-devsecops-pipeline/
 │   ├── requirements.txt      — includes pinned vulnerable deps
 │   └── Dockerfile            — container for DAST scanning
 ├── triage/
-│   ├── triage.py             — AI triage agent (Claude API)
-│   └── requirements.txt      — anthropic SDK
+│   ├── triage.py             — AI triage agent (Gemini API)
+│   └── requirements.txt      — Gemini SDK dependency
 ├── tests/
 │   └── test_triage.py        — 31 tests, 98% coverage
 ├── docs/
@@ -120,6 +120,6 @@ ai-devsecops-pipeline/
 
 - Python 3.11+
 - GitHub Actions
-- Claude API (`anthropic` Python SDK)
+- Gemini API (`google-genai` Python SDK)
 - Semgrep, TruffleHog, pip-audit, ZAP
 - pytest + pytest-cov
