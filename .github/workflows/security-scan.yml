@@ -253,6 +253,12 @@ jobs:
     needs: [changes, semgrep, secrets, sca, dast]
     if: ${{ always() && (needs.semgrep.result == 'success' || needs.secrets.result == 'success' || needs.sca.result == 'success' || needs.dast.result == 'success') }}
     runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+      SCAN_ARTIFACTS: ${{ env.SCAN_ARTIFACTS }}
     steps:
       - uses: actions/checkout@v4
 
@@ -271,15 +277,9 @@ jobs:
           merge-multiple: true
 
       - name: Run AI triage
-        if: ${{ secrets.GEMINI_API_KEY != '' }}
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
-          SCAN_ARTIFACTS: ${{ env.SCAN_ARTIFACTS }}
+        if: ${{ env.GEMINI_API_KEY != '' }}
         run: python triage/triage.py
 
       - name: Skip AI triage (missing GEMINI_API_KEY)
-        if: ${{ secrets.GEMINI_API_KEY == '' }}
+        if: ${{ env.GEMINI_API_KEY == '' }}
         run: echo "GEMINI_API_KEY not available for this run; skipping AI triage and PR comment posting."
