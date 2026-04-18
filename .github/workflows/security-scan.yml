@@ -3,6 +3,9 @@ name: Security Scan Pipeline
 on:
   pull_request:
     types: [opened, synchronize]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
