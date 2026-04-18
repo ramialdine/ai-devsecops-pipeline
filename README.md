@@ -1,6 +1,6 @@
 # ai-devsecops-pipeline
 
-A GitHub Actions-powered DevSecOps pipeline that automatically runs a full AppSec scan suite on every pull request, then uses the Gemini API to triage findings and post an AI-generated summary as a PR comment.
+A GitHub Actions-powered DevSecOps pipeline that automatically runs a full AppSec scan suite on every push and pull request, then uses the Gemini API to triage findings and post an AI-generated summary as a PR comment.
 
 ## Architecture
 
