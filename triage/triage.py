@@ -288,8 +288,12 @@ def post_pr_comment(comment_body: str, repo: str, pr_number: int) -> None:
 def main():
     artifact_dir = os.environ.get("SCAN_ARTIFACTS", "artifacts")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
-    pr_number_str = os.environ.get("PR_NUMBER", "0")
-    pr_number = int(pr_number_str)
+    pr_number_str = (os.environ.get("PR_NUMBER") or "").strip()
+    try:
+        pr_number = int(pr_number_str) if pr_number_str else 0
+    except ValueError:
+        print(f"[triage] Invalid PR_NUMBER='{pr_number_str}' — defaulting to 0", file=sys.stderr)
+        pr_number = 0
 
     print(f"[triage] Loading scanner results from {artifact_dir}", file=sys.stderr)
     findings = load_scanner_results(artifact_dir)
