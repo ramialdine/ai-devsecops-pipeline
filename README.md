@@ -4,6 +4,8 @@ A GitHub Actions-powered DevSecOps pipeline that automatically runs a full AppSe
 
 ## Architecture
 
+![DevSecOps Workflow Chart](workflowChart.png)
+
 ```
 PR opened/updated
        │
