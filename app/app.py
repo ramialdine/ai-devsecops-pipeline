@@ -32,7 +32,11 @@ def get_db():
 def index():
     return render_template_string(
         "<h1>Vulnerable Test App</h1>"
-        "<p>Endpoints: /search, /greet, /health</p>"
+        "<ul>"
+        "<li><a href='/search?q=admin'>/search?q=admin</a></li>"
+        "<li><a href='/greet?name=world'>/greet?name=world</a></li>"
+        "<li><a href='/health'>/health</a></li>"
+        "</ul>"
     )
 
 
